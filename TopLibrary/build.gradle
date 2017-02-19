@@ -22,4 +22,6 @@ dependencies {
     provided files('libs/Volley.jar')
     provided files('libs/support-v4-23.0.1.jar')
     provided files('libs/support-v4-impl-23.0.1.jar')
+//    provided files("${absoluteProjectPath("libs/support-v4-impl-23.0.1.jar")}/fake.jar") // test when unable to parse the experssion
+//    provided files('libs/fake_fake.jar') test when commented
 }

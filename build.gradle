@@ -20,6 +20,10 @@ task clean(type: Delete) {
 }
 
 def getSdkDir() {
+    return getSdkDir(project)
+}
+
+def static getSdkDir(project) {
     def SDK_DIR = System.getenv("ANDROID_HOME")
     if (SDK_DIR == null) {
         Properties props = new Properties()
@@ -27,4 +31,135 @@ def getSdkDir() {
         SDK_DIR = props.get('sdk.dir')
     }
     return SDK_DIR
+}
+
+def static attachProvidedDependenciesForApplicationModule(project) {
+    project.rootProject.subprojects { prj ->
+        attachDependencies(prj)
+    }
+}
+
+def static attachDependencies(project) {
+    def isAppModule = isAnApplicationProject project
+    if (!isAppModule) return
+
+    project.afterEvaluate {
+        project.android.applicationVariants.each { variant ->
+//            println "${project.path} variant - ${variant}"
+
+            def isRunProguard = variant.buildType.minifyEnabled
+            if (!isRunProguard) return
+
+            def taskName = "proguard${variant.buildType.name.capitalize()}"
+            def proguardTask = project.tasks.findByName(taskName)
+//            println "${taskName} task - ${proguardTask}"
+
+            def extraTask = project.tasks.create("attachProvidedDependencies") << {
+//                println "attachProvidedDependencies"
+                attachDependenciesImpl project, variant.buildType
+            }
+            proguardTask.dependsOn extraTask
+        }
+    }
+}
+
+def static attachDependenciesImpl(project, buildType) {
+    def providedFileCfgs = new HashSet<String>()
+    fetchAllProvidedDependenciesCfg(project, project.path, providedFileCfgs)
+
+//    def carriageChar = System.getProperty("line.separator")
+//    def extraProguardCfgFile = new File(project.buildDir, 'extra_cfg.pro')
+    for (providedFileCfg in providedFileCfgs) {
+        println "attach provided dependency ${providedFileCfg} into project(${project.path})"
+        project.getDependencies().add('provided', project.files(providedFileCfg))
+//        println "attach provided dependency ${providedFileCfg} into project(${project.path}).buildDir"
+//        extraProguardCfgFile << "-libraryjars ${providedFileCfg}${carriageChar}"
+    }
+
+//    def buildTypeObj = fetchFieldRecur(buildType, "buildType")
+//    println "buildType ${buildTypeObj}"
+//    def proguardFiles = fetchProguardFieldRecur buildTypeObj // will return a List
+//    println "before proguardFiles ${proguardFiles}"
+//    proguardFiles.add extraProguardCfgFile
+//    proguardFiles = fetchProguardFieldRecur buildTypeObj
+//    println "after proguardFiles ${proguardFiles}"
+}
+
+def static fetchAllProvidedDependenciesCfg(project, projectPath, providedFiles) {
+    def prj = project.project(projectPath)
+
+    for (line in prj.file('build.gradle').readLines()) {
+        line = line.replaceAll(" ", "").trim()
+//        line = line.replaceAll("'", "").replaceAll("\"", "").replaceAll(" ", "").trim()
+
+        try {
+            def dePrjPath = (line =~ /^compileproject\((\S+)\)/)[0][1]
+//            println "dePrjPath hit line ${line} - ${dePrjPath}"
+            fetchAllProvidedDependenciesCfg(project, Eval.me(dePrjPath), providedFiles)
+        } catch (Exception e) {
+        }
+
+        try {
+            def providedFileStr = ''
+
+            def targetExpr = (line =~ /^providedfiles\(('|")(\S+)('|")\)/)[0][2]
+//            println "targetExpr hit line ${line} - ${targetExpr}"
+            try {
+                def matcher = targetExpr =~ /^\$\{(\S+)}(\S+)/
+                def executableExpr = matcher[0][1]
+                def postfixPath = matcher[0][2]
+//                println "hit expr ${targetExpr} - ${executableExpr} - ${postfixPath}"
+
+                if (executableExpr.startsWith("getSdkDir")) {
+                    providedFileStr = getSdkDir(project) + postfixPath
+
+                } else if (executableExpr.startsWith("project(")) {
+                    providedFileStr = "${Eval.me('project', project, "project.${executableExpr}")}${postfixPath}"
+//                    println "expr execute : ${providedFileStr}"
+
+                } else {
+                    throw new Error("cannot parse the ${executableExpr} of line ${line}, please come to lingyunxiao or read the fucking code^_^")
+                }
+            } catch (Exception ignored) {
+                providedFileStr = "${prj.projectDir}/${targetExpr}"
+            }
+
+            providedFiles.add providedFileStr
+        } catch (Exception ignored) {
+        }
+    }
+}
+
+def static isAnApplicationProject(project) {
+    def buildFile = project.file('build.gradle')
+    if (!buildFile.exists()) return false
+
+    for (line in buildFile.readLines()) {
+        // 匹配 : apply plugin: 'com.android.application' || apply plugin: 'android'
+        line = line.replaceAll("'", "").replaceAll("\"", "").trim()
+        def isAppModule = line.startsWith("apply ") && line.contains(" plugin") && (line.endsWith("android") || line.contains("com.android.application"))
+        if (isAppModule) {
+//            println "point line ${line}"
+            return true
+        }
+    }
+    return false
+}
+
+def static fetchProguardFieldRecur(buildType) {
+    fetchFieldRecur buildType, buildType.getClass(), "mProguardFiles"
+}
+
+def static fetchFieldRecur(buildType, fieldName) {
+    fetchFieldRecur buildType, buildType.getClass(), fieldName
+}
+
+def static fetchFieldRecur(buildType, clazz, fieldName) {
+    try {
+        def proguardFilesField = clazz.getDeclaredField(fieldName)
+        proguardFilesField.setAccessible(true)
+        return proguardFilesField.get(buildType)
+    } catch (NoSuchFieldException ignored) {
+        return fetchFieldRecur(buildType, clazz.getSuperclass(), fieldName)
+    }
 }

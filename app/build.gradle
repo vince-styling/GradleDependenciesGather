@@ -34,5 +34,9 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile project(':TopLibrary')
+    compile project(':TopLibrary') // test when comment at line end
+    provided files("${getSdkDir()}/platforms/android-23/data/layoutlib.jar")
+//    provided files("${getSdkDir()}/platforms/android-23/data/layoutlib.jar") test when commented
 }
+
+attachProvidedDependenciesForApplicationModule(project)

@@ -19,4 +19,5 @@ android {
 
 dependencies {
     provided files("${getSdkDir()}/platforms/android-23/data/layoutlib.jar")
+    provided files("${project(":SubLibrary").buildDir}/fake.jar") // test when jar doesn't exists
 }
